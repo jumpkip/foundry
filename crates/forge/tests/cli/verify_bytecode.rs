@@ -1,13 +1,16 @@
+use alloy_chains::Chain;
 use foundry_compilers::artifacts::{BytecodeHash, EvmVersion};
 use foundry_config::Config;
 use foundry_test_utils::{
-    TestCommand, TestProject, forgetest_async,
+    TestCommand, TestProject,
+    etherscan::fetch_etherscan_source_flattened,
+    forgetest_async,
     rpc::{next_etherscan_api_key, next_http_archive_rpc_url},
     util::OutputExt,
 };
 
 #[expect(clippy::too_many_arguments)]
-fn test_verify_bytecode(
+async fn test_verify_bytecode(
     prj: TestProject,
     mut cmd: TestCommand,
     addr: &str,
@@ -17,17 +20,15 @@ fn test_verify_bytecode(
     verifier: &str,
     verifier_url: &str,
     expected_matches: (&str, &str),
+    chain: Chain,
 ) {
     let etherscan_key = next_etherscan_api_key();
     let rpc_url = next_http_archive_rpc_url();
 
-    // fetch and flatten source code
-    let source_code = cmd
-        .cast_fuse()
-        .args(["source", addr, "--flatten", "--etherscan-api-key", &etherscan_key])
-        .assert_success()
-        .get_output()
-        .stdout_lossy();
+    // fetch and flatten source code using the library directly
+    let source_code = fetch_etherscan_source_flattened(addr, &etherscan_key, chain)
+        .await
+        .expect("failed to fetch source code from etherscan");
 
     prj.add_source(contract_name, &source_code);
     prj.write_config(config);
@@ -65,7 +66,7 @@ fn test_verify_bytecode(
 }
 
 #[expect(clippy::too_many_arguments)]
-fn test_verify_bytecode_with_ignore(
+async fn test_verify_bytecode_with_ignore(
     prj: TestProject,
     mut cmd: TestCommand,
     addr: &str,
@@ -75,26 +76,15 @@ fn test_verify_bytecode_with_ignore(
     verifier_url: &str,
     expected_matches: (&str, &str),
     ignore: &str,
-    chain: &str,
+    chain: Chain,
 ) {
     let etherscan_key = next_etherscan_api_key();
     let rpc_url = next_http_archive_rpc_url();
 
-    // fetch and flatten source code
-    let source_code = cmd
-        .cast_fuse()
-        .args([
-            "source",
-            addr,
-            "--flatten",
-            "--etherscan-api-key",
-            &etherscan_key,
-            "--chain",
-            chain,
-        ])
-        .assert_success()
-        .get_output()
-        .stdout_lossy();
+    // fetch and flatten source code using the library directly
+    let source_code = fetch_etherscan_source_flattened(addr, &etherscan_key, chain)
+        .await
+        .expect("failed to fetch source code from etherscan");
 
     prj.add_source(contract_name, &source_code);
     prj.write_config(config);
@@ -145,7 +135,7 @@ fn test_verify_bytecode_with_ignore(
     }
 }
 
-forgetest_async!(can_verify_bytecode_no_metadata, |prj, cmd| {
+forgetest_async!(flaky_verify_bytecode_no_metadata, |prj, cmd| {
     test_verify_bytecode(
         prj,
         cmd,
@@ -163,10 +153,12 @@ forgetest_async!(can_verify_bytecode_no_metadata, |prj, cmd| {
         "etherscan",
         "https://api.etherscan.io/v2/api?chainid=1",
         ("partial", "partial"),
-    );
+        Chain::mainnet(),
+    )
+    .await;
 });
 
-forgetest_async!(can_verify_bytecode_with_metadata, |prj, cmd| {
+forgetest_async!(flaky_verify_bytecode_with_metadata, |prj, cmd| {
     test_verify_bytecode(
         prj,
         cmd,
@@ -182,11 +174,13 @@ forgetest_async!(can_verify_bytecode_with_metadata, |prj, cmd| {
         "etherscan",
         "https://api.etherscan.io/v2/api?chainid=1",
         ("partial", "partial"),
-    );
+        Chain::mainnet(),
+    )
+    .await;
 });
 
 // Test non-CREATE2 deployed contract with blockscout
-forgetest_async!(can_verify_bytecode_with_blockscout, |prj, cmd| {
+forgetest_async!(flaky_verify_bytecode_with_blockscout, |prj, cmd| {
     test_verify_bytecode(
         prj,
         cmd,
@@ -202,11 +196,13 @@ forgetest_async!(can_verify_bytecode_with_blockscout, |prj, cmd| {
         "blockscout",
         "https://eth.blockscout.com/api",
         ("partial", "partial"),
-    );
+        Chain::mainnet(),
+    )
+    .await;
 });
 
 // Test CREATE2 deployed contract with blockscout
-forgetest_async!(can_vb_create2_with_blockscout, |prj, cmd| {
+forgetest_async!(flaky_verify_bytecode_create2_with_blockscout, |prj, cmd| {
     test_verify_bytecode(
         prj,
         cmd,
@@ -224,11 +220,13 @@ forgetest_async!(can_vb_create2_with_blockscout, |prj, cmd| {
         "blockscout",
         "https://eth.blockscout.com/api",
         ("partial", "partial"),
-    );
+        Chain::mainnet(),
+    )
+    .await;
 });
 
 // Test `--constructor-args`
-forgetest_async!(can_verify_bytecode_with_constructor_args, |prj, cmd| {
+forgetest_async!(flaky_verify_bytecode_with_constructor_args, |prj, cmd| {
     let constructor_args = vec![
         "0x39053D51B77DC0d36036Fc1fCc8Cb819df8Ef37A",
         "0x91E677b07F7AF907ec9a428aafA9fc14a0d3A338",
@@ -249,11 +247,13 @@ forgetest_async!(can_verify_bytecode_with_constructor_args, |prj, cmd| {
         "etherscan",
         "https://api.etherscan.io/v2/api?chainid=1",
         ("partial", "partial"),
-    );
+        Chain::mainnet(),
+    )
+    .await;
 });
 
 // `--ignore` tests
-forgetest_async!(can_ignore_creation, |prj, cmd| {
+forgetest_async!(flaky_verify_bytecode_can_ignore_creation, |prj, cmd| {
     test_verify_bytecode_with_ignore(
         prj,
         cmd,
@@ -271,11 +271,12 @@ forgetest_async!(can_ignore_creation, |prj, cmd| {
         "https://api.etherscan.io/v2/api?chainid=1",
         ("ignored", "partial"),
         "creation",
-        "1",
-    );
+        Chain::mainnet(),
+    )
+    .await;
 });
 
-forgetest_async!(can_ignore_runtime, |prj, cmd| {
+forgetest_async!(flaky_verify_bytecode_can_ignore_runtime, |prj, cmd| {
     test_verify_bytecode_with_ignore(
         prj,
         cmd,
@@ -293,28 +294,24 @@ forgetest_async!(can_ignore_runtime, |prj, cmd| {
         "https://api.etherscan.io/v2/api?chainid=1",
         ("partial", "ignored"),
         "runtime",
-        "1",
-    );
+        Chain::mainnet(),
+    )
+    .await;
 });
 
 // Test that verification fails when source code doesn't match deployed bytecode
-forgetest_async!(can_verify_bytecode_fails_on_source_mismatch, |prj, cmd| {
+forgetest_async!(flaky_can_verify_bytecode_fails_on_source_mismatch, |prj, cmd| {
     let etherscan_key = next_etherscan_api_key();
     let rpc_url = next_http_archive_rpc_url();
 
-    // Fetch real source code
-    let real_source = cmd
-        .cast_fuse()
-        .args([
-            "source",
-            "0xba2492e52F45651B60B8B38d4Ea5E2390C64Ffb1",
-            "--flatten",
-            "--etherscan-api-key",
-            &etherscan_key,
-        ])
-        .assert_success()
-        .get_output()
-        .stdout_lossy();
+    // Fetch real source code using the library directly
+    let real_source = fetch_etherscan_source_flattened(
+        "0xba2492e52F45651B60B8B38d4Ea5E2390C64Ffb1",
+        &etherscan_key,
+        Chain::mainnet(),
+    )
+    .await
+    .expect("failed to fetch source code from etherscan");
 
     prj.add_source("SystemConfig", &real_source);
     prj.write_config(Config {
@@ -325,13 +322,14 @@ forgetest_async!(can_verify_bytecode_fails_on_source_mismatch, |prj, cmd| {
         bytecode_hash: BytecodeHash::None,
         ..Default::default()
     });
-    // Build once with correct source (creates cache)
-    cmd.forge_fuse().arg("build").assert_success();
+    // Build once with correct source (creates cache). Linting is unrelated to bytecode
+    // verification here and can dominate runtime on the flattened Etherscan source.
+    cmd.forge_fuse().args(["build", "--no-lint"]).assert_success();
 
     let source_code = r#"
     contract SystemConfig {
         uint256 public constant MODIFIED_VALUE = 999;
-    
+
         function someFunction() public pure returns (uint256) {
             return MODIFIED_VALUE;
         }
@@ -340,6 +338,7 @@ forgetest_async!(can_verify_bytecode_fails_on_source_mismatch, |prj, cmd| {
 
     // Now replace with different incorrect source code
     prj.add_source("SystemConfig", source_code);
+    let etherscan_key = next_etherscan_api_key();
     let args = vec![
         "verify-bytecode",
         "0xba2492e52F45651B60B8B38d4Ea5E2390C64Ffb1",
@@ -381,6 +380,100 @@ forgetest_async!(can_verify_bytecode_fails_on_source_mismatch, |prj, cmd| {
 //         "https://api.basescan.org/api",
 //         ("ignored", "partial"),
 //         "creation",
-//         "base",
-//     );
+//         Chain::base_mainnet(),
+//     ).await;
 // });
+
+// Tests that `verify-bytecode` works without any external block explorer, relying only on the
+// local project and an RPC endpoint.
+// <https://github.com/foundry-rs/foundry/issues/13479>
+forgetest_async!(can_verify_bytecode_without_explorer, |prj, cmd| {
+    foundry_test_utils::util::initialize(prj.root());
+    prj.initialize_default_contracts();
+
+    let (_api, handle) = anvil::spawn(anvil::NodeConfig::test()).await;
+    let rpc = handle.http_endpoint();
+    let wallet = handle.dev_wallets().next().unwrap();
+    let pk = alloy_primitives::hex::encode(wallet.credential().to_bytes());
+
+    // Deploy the template contract; first tx of the default dev account.
+    cmd.forge_fuse();
+    cmd.unset_env("ETHERSCAN_API_KEY");
+    cmd.unset_env("VERIFIER_API_KEY");
+    cmd.unset_env("VERIFIER_URL");
+    let output = cmd
+        .args([
+            "create",
+            "./src/Counter.sol:Counter",
+            "--rpc-url",
+            rpc.as_str(),
+            "--private-key",
+            pk.as_str(),
+            "--broadcast",
+        ])
+        .assert_success()
+        .get_output()
+        .stdout_lossy();
+    let address = output
+        .lines()
+        .find_map(|line| line.strip_prefix("Deployed to: "))
+        .expect("contract address in `forge create` output")
+        .to_string();
+
+    // The local anvil chain has no block explorer: the command must still verify the runtime
+    // bytecode and only warn about the unavailable explorer data.
+    cmd.forge_fuse();
+    cmd.unset_env("ETHERSCAN_API_KEY");
+    cmd.unset_env("VERIFIER_API_KEY");
+    cmd.unset_env("VERIFIER_URL");
+    let assert = cmd
+        .args(["verify-bytecode", &address, "Counter", "--rpc-url", rpc.as_str()])
+        .assert_success();
+    let output = assert.get_output();
+    let stdout = output.stdout_lossy();
+    let stderr = output.stderr_lossy();
+
+    assert!(stdout.contains("Runtime code matched"), "{stdout}");
+    assert!(stderr.contains("Creation data is unavailable"), "{stderr}");
+
+    // `--ignore runtime` must skip the runtime fallback as well: with no creation data either,
+    // there is nothing left to verify.
+    cmd.forge_fuse();
+    cmd.unset_env("ETHERSCAN_API_KEY");
+    cmd.unset_env("VERIFIER_API_KEY");
+    cmd.unset_env("VERIFIER_URL");
+    let assert = cmd
+        .args([
+            "verify-bytecode",
+            &address,
+            "Counter",
+            "--rpc-url",
+            rpc.as_str(),
+            "--ignore",
+            "runtime",
+        ])
+        .assert_success();
+    let output = assert.get_output();
+    let stdout = output.stdout_lossy();
+    let stderr = output.stderr_lossy();
+
+    assert!(!stdout.contains("Runtime code matched"), "{stdout}");
+    assert!(stderr.contains("Creation data is unavailable"), "{stderr}");
+
+    // An explicitly configured but broken verifier must surface an error instead of being
+    // silently treated as "no explorer".
+    cmd.forge_fuse();
+    cmd.unset_env("ETHERSCAN_API_KEY");
+    cmd.unset_env("VERIFIER_API_KEY");
+    cmd.unset_env("VERIFIER_URL");
+    cmd.args([
+        "verify-bytecode",
+        &address,
+        "Counter",
+        "--rpc-url",
+        rpc.as_str(),
+        "--verifier-url",
+        "this-is-not-a-url",
+    ])
+    .assert_failure();
+});
